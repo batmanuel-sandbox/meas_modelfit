@@ -51,6 +51,7 @@ namespace modelfit {
 class MomentsModel {
 public:
     using Moments = Eigen::Matrix<double, 6, 1>;
+    using MomentsGrad = Eigen::Matrix<double, 6, 1>;
     using Jacobian = Eigen::Matrix<double, 6, 6>;
     using FirstMoment = Eigen::Matrix<double, 2, 1>;
     using SecondMoment = Eigen::Matrix<double, 2, 2>;
@@ -110,14 +111,15 @@ private:
 
 class ShapePrior {
 public:
-    using Moments = MomentsModel::Moments;
-    using SecondMoment = MomentsModel::SecondMoment;
+    using PriorGrad = Eigen::Matrix<double, 4, 1>
+    using Quadrupole = lsst::afw::geom::ellipse::Quadrupole;
+    using Triplet = Eigen::Matrix<double, 3, 1>;
 
-    virtual void at(SecondMoment second, double flux) = 0;
+    virtual void at(SecondMoment const & second, double flux) = 0;
 
     virtual double computeLogProbability() const = 0;
 
-    virtual Moments computeLogDerivative() const = 0;
+    virtual PriorGrad computeLogDerivative() const = 0;
 };
 
 
@@ -126,16 +128,46 @@ public:
     virtual double pStar(double flux) const = 0;
 };
 
-class StarGalaxyPrior : ShapePrior {
-public:
-    void at(SecondMoment second, double flux) override;
+class GalaxyPrior : ShapePrior {
+    enum Parameter {Flux, Radius, Shape};
+
+    void at(Quadrupole const & second, double flux) override;
 
     double computeLogProbability() const override;
 
-    double Moments computeLogDerivative() const override;
+    PriorGrad computeLogDerivative() const override;
+
+    void GalaxyPrior(Quadrupole psf, const std::shared_ptr<geom::SkyWcs const> wcs,
+                     const std::shared_ptr<image::calib const> calib,
+                     afw::geom::Point2D const & location);
+
+private:
+    // mixture model over a box cox transformation with flux, radius, and shape, with
+    // dimensions in that order
+    std::unique_ptr<Mixture> GMM;
+    std::shared_ptr<Mixture> fluxProjection;
+    std::vector<double> boxCoxParams;
+    const std::shared_ptr<afw::geom::SkyWcs const> wcs;
+    const std::shared_ptr<afw::image::Calib const> calib;
+    LocalUnitTransform transformation;
+    double magZero = 27;
+    // variable to store the log probability of the prior, is constructed with nan to
+    // ensure someone calls at before computeLogProbability
+    double logProbability = 0;
+    PriorGrad logDerivative;
+    bool atCalled = false;
+}
+
+class StarGalaxyPrior : ShapePrior {
+public:
+    void at(Quadrupole const & second, double flux) override;
+
+    double computeLogProbability() const override;
+
+    PriorGrad computeLogDerivative() const override;
 
     StarGalaxyPrior(std::unique_ptr<ShapePrior> galaxyPrior, std::unique_ptr<ClassificationPrior> classify,
-                    SecondMoment psfMoments, double psfFuzz):_galaxy(std::move(galaxyPrior)), 
+                    Quadrupole psfMoments, double psfFuzz):_galaxy(std::move(galaxyPrior)), 
                                                              _classification(std::move(classify)),
                                                              _psf(psfMoments), _psfFuzz(psfFuzz){
     };

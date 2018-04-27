@@ -248,6 +248,17 @@ public:
         ndarray::Array<Scalar,2,1> const & hessian
     ) const;
 
+    void evaluateDerivatives(
+        eigen::Vector<Scalar, eigen::Dynamic> const & x,
+        eigen::Vector<Scalar, eigen::Dynamic> const & gradient,
+        eigen::Matrix<Scalar, eigen::Dynamic, eigen::Dynamic> const & hessian
+    ) const;
+
+    void evaluateDerivatives(
+        eigen::Vector<Scalar, eigen::Dynamic> const & x,
+        eigen::Vector<Scalar, eigen::Dynamic> const & gradient
+    ) const;
+
     /**
      *  @brief Draw random variates from the distribution.
      *
@@ -347,6 +358,10 @@ protected:
     virtual void write(OutputArchiveHandle & handle) const;
 
 private:
+    void evaluateDerivativesImpl(eigen::Vector<Scalar, eigen::Dynamic> const & x,
+                                 eigen::Vector<Scalar, eigen::Dynamic> const & gradient,
+                                 std::shared_ptr<eigen::Matrix<Scalar, eigen::Dynamic, eigen::Dynamic>> hessian,
+                                 bool computeHessian = false) const;
 
     template <typename Derived>
     Scalar _computeZ(Component const & component, Eigen::MatrixBase<Derived> const & x) const {

@@ -686,4 +686,113 @@ MomentsModel::Jacobian MomentsModel::computeJacobian() {
 
     return result;
 }
+
+// anonymous namespace fore prior functions
+namespace {
+    auto convertShear(Quadrupole const & second) {
+        lsst::afw::geom::ellipse::Separable<ConformalShear, TraceRadius> shear;
+
+        eigen::Matrix<double, 3, 3> dConform_dQ = shear.dAssign(second);
+
+        double e = std::sqrt(std::pow(shear.getE1(), 2) + std::pow(shear.getE2(), 2));
+
+        // N.B. FINDME check here for the ordering of the shear derivative conversions
+        ShapePrior::Triplet eSubGrad = (shear.getE1()*dConform_dQ[1] + shear.getE2()*dConform_dQ[2])/e;
+
+        ShapePrior::PriorGrad rGrad, eGrad;
+
+        eGrad << 0, eSubGrad[0], eSubGrad[1], eSubGrad[2];
+
+        rGrad << 0, dConform_dQ[0], dConform_dQ[1], dConform_dQ[2];
+
+        return std::make_tuple(shear.getTraceRadius(), e, rGrad, eGrad);
+    }
+
+    auto convertBoxCox(double flux, double e, double radius, ShapePrior::Triplet lambdaVec) {
+        double bcFlux = (std::pow(flux, lambdaVec[0]) - 1)/lambdaVec[0];
+        double bcE = (std::pow(e, lambdaVec[1]) - 1)/lambdaVec[1];
+        double bcRadius = (std::pow(radius, lambdaVec[2]) - 1)/lambdaVec[2];
+
+        double dbcFlux_dflux = std::pow(flux, lambdaVec[0]);
+        double dbcE_de = std::pow(e, lambdaVec[1]);
+        double dbcRadius_dradius = std::pow(radius, lambdaVec[2]);
+
+        return std::make_tuple(bcFlux, bcE, bcRadius, dbcFlux_dflux, dbcE_de, dbcRadius_dradius);
+    }
+} // end anonymous namespace for prior functions
+
+void GalaxyPrior::at(Quadrupole const & second, double flux) {
+    // Convert to the sky coordinates
+    Quadrupole skyQuad(second.transform(transformation.geometric.getLinear()));
+
+    double radius, shape;
+    PriorGrad rGrad, shapeGrad;
+
+    std::tie(radius, shape, rGrad, shapeGrad) = convertShear(skyQuad);
+
+    double bcFlux, bcRadius, bcShape, dbcFlux_dFlux, dbcRadius_dRadius, dbcShape_dShape;
+
+    std::tie(bcFlux, bcRadius, bcShape, dbcFlux_dFlux, dbcRadius_dRadius, dbcShape_dShape) = 
+        convertBoxCox(flux, shape, radius, boxCoxParams);
+
+    atCalled = true;
+
+    logProbability = GMM.evaluate(Tripplet(bcFlux, bcRadius, bcShape));
+    
+}
+
+void GalaxyPrior::GalaxyPrior(Quadrupole psf, const std::shared_ptr<geom::SkyWcs const> wcs,
+                              const std::shared_ptr<image::calib const> calib,
+                              afw::geom::Point2D const & location): wcs(wcs), calib(calib){
+
+    eigen::Matrix<double, 5, 1> weights;
+    eigen::Matrix<double, 5, 3> means;
+    std::vector<eigen::Matrix<double, 3, 3>> covariance(5);
+
+    weights << 0.21825883, 0.19031691, 0.1555166 , 0.18733207, 0.2485756;
+
+    means << 1.00145953, -2.13395621, -1.12239712,
+             0.5481402 , -3.0153473 , -1.38981099,
+             2.0865935 , -1.1594383 , -1.06838602,
+             1.86136494, -2.09294083, -1.42046602,
+             1.32048311, -2.99453195, -1.79628035;
+
+    covariance(0) << 0.14683582,  0.06103937, -0.03816989,
+                     0.06103937,  0.39954086,  0.14638071,
+                     -0.03816989,  0.14638071,  0.1914126;
+
+    covariance(1) << 0.12197696,  0.14318042, -0.05975184,
+                     0.14318042,  0.4809234 , -0.00078431,
+                     -0.05975184, -0.00078431,  0.18040727;
+ 
+    covariance(2) <<  0.17520647,  0.09189018,  0.00082897,
+                      0.09189018,  0.20377219,  0.07790261,
+                      0.00082897,  0.07790261,  0.25926442;
+
+    covaraince(3) << 0.17247411,  0.04202637, -0.02910618,
+                     0.04202637,  0.16502261,  0.08307885,
+                    -0.02910618,  0.08307885,  0.1941438;
+
+    covariance(4) << 0.20882078,  0.06569576, -0.05825398,
+                     0.06569576,  0.13124549,  0.03593792,
+                     -0.05825398,  0.03593792,  0.15295241;
+
+    std::vector<Mixture::Component> ComponentList(weights.size());
+    
+    for (std::size_t i = 0; i < weights.size(); ++i){
+        ComponentList.emplace_back(weights[i], means.row(i), covariance[i]);
+    }
+
+    GMM = std::make_unique<Mixture>(weights.size(), ComponentList);
+    fluxProjection = GMM.project(Parameter::Flux);
+
+    boxCoxParams({-0.29366909334755653, -1.9465686350090095, 0.2299077796501515});
+
+    UnitSystem source(wcs, calib);
+    UnitSystem destination(wcs->pixelToSky(location), magZero);
+
+    localTransfrom = LocalUnitTransform(location, source, destination);
+}
+
+
 }}} // Close lsst::meas::modelfit

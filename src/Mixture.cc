@@ -214,6 +214,8 @@ void Mixture::evaluateComponents(
 }
 
 void Mixture::evaluateDerivatives(
+
+void Mixture::evaluateDerivatives(
     ndarray::Array<Scalar const,1,1> const & x,
     ndarray::Array<Scalar,1,1> const & gradient,
     ndarray::Array<Scalar,2,1> const & hessian
