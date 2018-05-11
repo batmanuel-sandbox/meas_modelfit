@@ -115,7 +115,7 @@ public:
     using Quadrupole = lsst::afw::geom::ellipse::Quadrupole;
     using Triplet = Eigen::Matrix<double, 3, 1>;
 
-    virtual void at(SecondMoment const & second, double flux) = 0;
+    virtual void setParameters(SecondMoment const & second, double flux) = 0;
 
     virtual double computeLogProbability() const = 0;
 
@@ -131,7 +131,7 @@ public:
 class GalaxyPrior : ShapePrior {
     enum Parameter {Flux, Radius, Shape};
 
-    void at(Quadrupole const & second, double flux) override;
+    void setParameters(Quadrupole const & second, double flux) override;
 
     double computeLogProbability() const override;
 
@@ -151,25 +151,24 @@ private:
     const std::shared_ptr<afw::image::Calib const> calib;
     LocalUnitTransform transformation;
     double magZero = 27;
-    // variable to store the log probability of the prior, is constructed with nan to
+    // variable to store the log probability of the prior, is constructed with 0 to
     // ensure someone calls at before computeLogProbability
     double logProbability = 0;
     PriorGrad logDerivative;
-    bool atCalled = false;
 }
 
 class StarGalaxyPrior : ShapePrior {
 public:
-    void at(Quadrupole const & second, double flux) override;
+    void setParameters(Quadrupole const & second, double flux) override;
 
     double computeLogProbability() const override;
 
     PriorGrad computeLogDerivative() const override;
 
-    StarGalaxyPrior(std::unique_ptr<ShapePrior> galaxyPrior, std::unique_ptr<ClassificationPrior> classify,
+    StarGalaxyPrior(std::unique_ptr<ShapePrior> && galaxyPrior, std::unique_ptr<ClassificationPrior> && classify,
                     Quadrupole psfMoments, double psfFuzz):_galaxy(std::move(galaxyPrior)), 
-                                                             _classification(std::move(classify)),
-                                                             _psf(psfMoments), _psfFuzz(psfFuzz){
+                                                           _classification(std::move(classify)),
+                                                           _psf(psfMoments), _psfFuzz(psfFuzz){
     };
 
 
